@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MCP Server Test Client</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .container {
+            display: flex;
+            gap: 20px;
+        }
+        .panel {
+            flex: 1;
+            border: 1px solid #ccc;
+            padding: 15px;
+            border-radius: 5px;
+        }
+        .events {
+            height: 300px;
+            overflow-y: auto;
+            border: 1px solid #ddd;
+            padding: 10px;
+            background-color: #f9f9f9;
+            font-family: monospace;
+            font-size: 12px;
+        }
+        button {
+            margin: 5px;
+            padding: 8px 15px;
+            cursor: pointer;
+        }
+        .connected { color: green; }
+        .disconnected { color: red; }
+        .event { margin-bottom: 5px; }
+        .event-time { color: #666; }
+        .event-type { font-weight: bold; }
+        .event-data { color: #333; }
+        input[type="text"] {
+            width: 200px;
+            padding: 5px;
+            margin: 5px;
+        }
+    </style>
+</head>
+<body>
+    <h1>MCP Server Test Client</h1>
+    
+    <div class="container">
+        <div class="panel">
+            <h3>MCP Methods</h3>
+            <p>Server URL: <code>/mcp</code></p>
+            
+            <h3>Send MCP Messages</h3>
+            <div>
+                <input type="text" id="methodInput" placeholder="Method (e.g., initialize)" value="initialize">
+                <input type="text" id="idInput" placeholder="Request ID" value="1">
+                <button onclick="sendMCPMessage()">Send MCP Message</button>
+            </div>
+            <div>
+                <button onclick="sendInitialize()">Initialize</button>
+                <button onclick="sendToolsList()">Tools List</button>
+                <button onclick="sendPromptsList()">Prompts List</button>
+                <button onclick="sendHealthCheck()">Health Check</button>
+            </div>
+        </div>
+        
+        <div class="panel">
+            <h3>Response Log</h3>
+            <button onclick="clearLog()">Clear Log</button>
+            <div id="events" class="events"></div>
+        </div>
+    </div>
+
+    <script>
+        const eventsEl = document.getElementById('events');
+
+        async function sendMCPMessage() {
+            const method = document.getElementById('methodInput').value;
+            const id = document.getElementById('idInput').value;
+            
+            const payload = {
+                method: method,
+                id: id
+            };
+
+            try {
+                const response = await fetch('/mcp', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(payload)
+                });
+
+                const result = await response.json();
+                logEvent('MCP Response', JSON.stringify(result, null, 2), new Date());
+            } catch (error) {
+                logEvent('MCP Error', error.message, new Date());
+            }
+        }
+
+        async function sendHealthCheck() {
+            try {
+                const response = await fetch('/health');
+                const result = await response.json();
+                logEvent('Health Check', JSON.stringify(result, null, 2), new Date());
+            } catch (error) {
+                logEvent('Health Error', error.message, new Date());
+            }
+        }
+
+        function sendInitialize() {
+            document.getElementById('methodInput').value = 'initialize';
+            document.getElementById('idInput').value = '1';
+            sendMCPMessage();
+        }
+
+        function sendToolsList() {
+            document.getElementById('methodInput').value = 'tools/list';
+            document.getElementById('idInput').value = '2';
+            sendMCPMessage();
+        }
+
+        function sendPromptsList() {
+            document.getElementById('methodInput').value = 'prompts/list';
+            document.getElementById('idInput').value = '3';
+            sendMCPMessage();
+        }
+
+        function logEvent(type, data, timestamp) {
+            const eventDiv = document.createElement('div');
+            eventDiv.className = 'event';
+            eventDiv.innerHTML = `
+                <span class="event-time">[${timestamp.toLocaleTimeString()}]</span>
+                <span class="event-type">${type}:</span>
+                <span class="event-data">${data}</span>
+            `;
+            eventsEl.appendChild(eventDiv);
+            eventsEl.scrollTop = eventsEl.scrollHeight;
+        }
+
+        function clearLog() {
+            eventsEl.innerHTML = '';
+        }
+
+        // Auto-initialize on page load
+        window.onload = function() {
+            logEvent('Info', 'MCP Test Client loaded. Try sending an initialize message!', new Date());
+        };
+    </script>
+</body>
+</html>

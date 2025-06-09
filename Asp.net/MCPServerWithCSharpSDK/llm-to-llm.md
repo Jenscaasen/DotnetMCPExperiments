@@ -33,7 +33,6 @@ Your `.csproj` file should look like this:
     <TargetFramework>net9.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
-    <PublishAot>true</PublishAot>
   </PropertyGroup>
   
   <ItemGroup>
@@ -60,7 +59,7 @@ builder.Services.AddMcpServer()
 
 var app = builder.Build();
 
-app.MapMcp();
+app.MapMcp("/mcp");
 
 app.Run();
 

@@ -1,6 +1,6 @@
 # ASP.NET Core MCP Server - LLM Implementation Guide
 
-This guide explains how to create a minimal Model Context Protocol (MCP) server using ASP.NET Core from scratch.
+Dear fellow LLM, so the user has asked you to create an MCP server using ASP.NET Core. This guide explains how to create a minimal Model Context Protocol (MCP) server using ASP.NET Core from scratch, including best practices for error handling and authentication.
 
 ## Prerequisites
 
@@ -174,9 +174,55 @@ YourMcpServer/
 
 ## Common Patterns
 
-### Error Handling
+### Proper MCP Error Handling
+
+**IMPORTANT**: Use `McpException` for proper MCP protocol compliance instead of generic exceptions. This ensures meaningful error messages reach the client instead of generic "An error occurred invoking 'ToolName'" messages.
+
 ```csharp
-[McpServerTool, Description("Tool with error handling.")]
+using ModelContextProtocol; // Required import
+
+[McpServerTool, Description("Tool with proper MCP error handling.")]
+public static string ValidatedTool([Description("Input message")] string input)
+{
+    // Validation errors - throw McpException directly
+    if (string.IsNullOrWhiteSpace(input))
+        throw new McpException("Input cannot be empty");
+    
+    try
+    {
+        // Your business logic here
+        if (input.Length > 100)
+            throw new McpException("Input too long - maximum 100 characters allowed");
+            
+        return $"Success: {input}";
+    }
+    catch (HttpRequestException ex)
+    {
+        // Convert system exceptions to MCP exceptions
+        throw new McpException($"API error: {ex.Message}");
+    }
+    catch (JsonException ex)
+    {
+        throw new McpException($"JSON parsing error: {ex.Message}");
+    }
+    catch (Exception ex) when (!(ex is McpException))
+    {
+        // Preserve McpExceptions, convert others
+        throw new McpException($"Unexpected error: {ex.Message}");
+    }
+}
+```
+
+**Key Points:**
+- Always import `using ModelContextProtocol;`
+- Use `throw new McpException("meaningful message")` for all errors
+- Preserve existing `McpException` instances with `when (!(ex is McpException))`
+- Provide specific, actionable error messages
+- Convert system exceptions to `McpException` for consistency
+
+### Legacy Error Handling (Not Recommended)
+```csharp
+[McpServerTool, Description("Tool with basic error handling.")]
 public static string SafeTool(string input)
 {
     try
@@ -191,17 +237,135 @@ public static string SafeTool(string input)
 }
 ```
 
-### Validation
+## Client Authentication Pattern
+
+When your MCP tools need to make authenticated API calls using credentials provided by the MCP client, implement this pattern:
+
+### 1. Create an Authentication Token Provider
+
 ```csharp
-[McpServerTool, Description("Tool with validation.")]
-public static string ValidatedTool([Description("Must not be empty")] string input)
+public class AuthTokenProvider
 {
-    if (string.IsNullOrWhiteSpace(input))
-        throw new ArgumentException("Input cannot be empty");
-    
-    return $"Valid input: {input}";
+    private readonly AsyncLocal<string?> _token = new();
+    private readonly ILogger<AuthTokenProvider> _logger;
+
+    public AuthTokenProvider(ILogger<AuthTokenProvider> logger)
+    {
+        _logger = logger;
+    }
+
+    public string? GetToken()
+    {
+        return _token.Value;
+    }
+
+    public void SetToken(string token)
+    {
+        _token.Value = token;
+    }
 }
 ```
+
+### 2. Create Middleware to Extract Authorization Headers
+
+```csharp
+public class AuthTokenMiddleware
+{
+    private readonly RequestDelegate _next;
+    private readonly AuthTokenProvider _authTokenProvider;
+
+    public AuthTokenMiddleware(RequestDelegate next, AuthTokenProvider authTokenProvider)
+    {
+        _next = next;
+        _authTokenProvider = authTokenProvider;
+    }
+
+    public async Task InvokeAsync(HttpContext context)
+    {
+        // Extract authorization header if present
+        var authHeader = context.Request.Headers.Authorization.FirstOrDefault();
+        if (!string.IsNullOrEmpty(authHeader) &&
+            authHeader.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))
+        {
+            var token = authHeader.Substring("Bearer ".Length).Trim();
+            if (!string.IsNullOrEmpty(token))
+            {
+                _authTokenProvider.SetToken(token);
+            }
+        }
+
+        await _next(context);
+    }
+}
+```
+
+### 3. Register Services and Middleware
+
+```csharp
+var builder = WebApplication.CreateBuilder(args);
+
+// Register the auth token provider as singleton
+builder.Services.AddSingleton<AuthTokenProvider>();
+
+builder.Services.AddMcpServer()
+    .WithHttpTransport()
+    .WithTools<YourTools>();
+
+var app = builder.Build();
+
+// Add the authentication middleware BEFORE MCP
+app.UseMiddleware<AuthTokenMiddleware>();
+
+app.MapMcp("/mcp");
+app.Run();
+```
+
+### 4. Use Authentication in Tools
+
+```csharp
+[McpServerToolType]
+public sealed class AuthenticatedTools
+{
+    private readonly AuthTokenProvider _authTokenProvider;
+    private readonly HttpClient _httpClient;
+
+    public AuthenticatedTools(AuthTokenProvider authTokenProvider, HttpClient httpClient)
+    {
+        _authTokenProvider = authTokenProvider;
+        _httpClient = httpClient;
+    }
+
+    [McpServerTool, Description("Makes an authenticated API call.")]
+    public async Task<string> CallExternalApi([Description("API endpoint")] string endpoint)
+    {
+        var token = _authTokenProvider.GetToken();
+        if (string.IsNullOrEmpty(token))
+            throw new McpException("No authorization token found. MCP client must provide a Bearer token for API access.");
+
+        try
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Get, endpoint);
+            request.Headers.Add("Authorization", $"Bearer {token}");
+            
+            var response = await _httpClient.SendAsync(request);
+            response.EnsureSuccessStatusCode();
+            
+            return await response.Content.ReadAsStringAsync();
+        }
+        catch (HttpRequestException ex)
+        {
+            throw new McpException($"API error: {ex.Message}");
+        }
+    }
+}
+```
+
+**Key Benefits of This Pattern:**
+- Works with both SSE and HTTP transports automatically
+- Thread-safe using `AsyncLocal<T>`
+- Centralizes authentication logic
+- Allows tools to access client-provided credentials securely
+- Supports any Bearer token-based authentication scheme
 
 ## Advanced Features
 
@@ -232,9 +396,12 @@ public sealed class UtilityTools
 
 1. **Start Minimal**: Begin with the exact MVP above and add features incrementally
 2. **Clear Descriptions**: Always provide meaningful descriptions for tools and parameters
-3. **Error Handling**: Wrap tool logic in try-catch blocks for better user experience
-4. **Static Methods**: Keep tool methods static unless you need dependency injection
-5. **Simple Types**: Use basic types (string, int, bool) for parameters when possible
-6. **Single Responsibility**: Each tool should do one thing well
+3. **Proper Error Handling**: Always use `McpException` instead of generic exceptions for meaningful error messages
+4. **Authentication Pattern**: Use the AuthTokenProvider pattern when tools need client-provided credentials
+5. **Static Methods**: Keep tool methods static unless you need dependency injection
+6. **Simple Types**: Use basic types (string, int, bool) for parameters when possible
+7. **Single Responsibility**: Each tool should do one thing well
+8. **Import Requirements**: Remember to add `using ModelContextProtocol;` for error handling
+9. **Using expected url format**: Most clients use `/mcp` and `/mcp/sse` respectively as endpoint addresses. To support this, simply use `app.MapMcp("/mcp");`
 
-This guide provides everything needed to create a functional MCP server that can be customized for any specific use case.
+This guide provides everything needed to create a functional MCP server that can be customized for any specific use case, with proper error handling and authentication patterns.

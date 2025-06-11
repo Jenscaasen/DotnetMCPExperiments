@@ -19,8 +19,8 @@ cd YourMcpServer
 ### 2. Add Required NuGet Packages
 
 ```bash
-dotnet add package ModelContextProtocol --version 0.2.0-preview.2
-dotnet add package ModelContextProtocol.AspNetCore --version 0.2.0-preview.2
+dotnet add package ModelContextProtocol --version 0.2.0-preview.3
+dotnet add package ModelContextProtocol.AspNetCore --version 0.2.0-preview.3
 ```
 
 ### 3. Update the Project File
@@ -36,8 +36,8 @@ Your `.csproj` file should look like this:
   </PropertyGroup>
   
   <ItemGroup>
-    <PackageReference Include="ModelContextProtocol" Version="0.2.0-preview.2" />
-    <PackageReference Include="ModelContextProtocol.AspNetCore" Version="0.2.0-preview.2" />
+    <PackageReference Include="ModelContextProtocol" Version="0.2.0-preview.3" />
+    <PackageReference Include="ModelContextProtocol.AspNetCore" Version="0.2.0-preview.3" />
   </ItemGroup>
 </Project>
 ```
@@ -98,10 +98,10 @@ public sealed class EchoTool
 dotnet run
 ```
 
-The server will start on `http://localhost:5000` by default.
+The server will start on `http://localhost:5000/mcp` by default.
 
-The URL `http://localhost:5000` will be the endpoint for the Streamable HTTP,
-and `http://localhost:5000/sse` for SSE compatibility in older clients.
+The URL `http://localhost:5000/mcp` will be the endpoint for the Streamable HTTP,
+and `http://localhost:5000/mcp/sse` for SSE compatibility in older clients.
  
 ## Customization Examples
 
